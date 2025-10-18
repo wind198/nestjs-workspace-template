@@ -1,0 +1,297 @@
+import { UsersService } from '@app/server/api/users/users.service';
+import { AuthService } from '@app/server/api/auth/auth.service';
+import { UserLoginDto } from '@app/server/api/auth/dto/user-login.dto';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { compare } from 'bcryptjs';
+import type { Response, Request } from 'express';
+import { I18n, I18nContext } from 'nestjs-i18n';
+import { IsPublic } from '@app/server/common/decorators/is-public.decorator';
+import { WithLogger } from '@app/server/common/providers/WithLogger';
+import { ACCESS_TOKEN } from '@app/server/common/constants/keys';
+import { REFRESH_TOKEN } from '@app/server/common/constants/keys';
+import { TempKeysService } from '@app/server/api/tempkeys/tempkeys.service';
+import moment from 'moment';
+import { ActivateAccountDto } from '@app/server/api/auth/dto/activate-account.dto';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { UserResponse } from '@app/server/api/users/dto/user.response';
+import { createSingleItemResponseDto } from '@app/server/common/types/swagger/single-item-reponse';
+import { UpdatePasswordDto } from '@app/server/api/auth/dto/update-password.dto';
+import { RequestResetPasswordDto } from '@app/server/api/auth/dto/request-reset-password';
+import { ResetPasswordDto } from '@app/server/api/auth/dto/reset-password.dto';
+import { UpdateProfileDto } from '@app/server/api/auth/dto/update-profile.dto';
+import { TempKeyType } from 'generated/prisma/';
+
+@ApiTags('Auth')
+@Controller('auth')
+export class AuthController extends WithLogger {
+  constructor(
+    private readonly authService: AuthService,
+    private readonly userService: UsersService,
+    private readonly tempKeyService: TempKeysService,
+  ) {
+    super();
+  }
+
+  @ApiOperation({
+    summary: 'User login',
+    description: 'User login',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
+  @IsPublic()
+  @Post('login')
+  async login(
+    @Body() body: UserLoginDto,
+    @I18n() i18n: I18nContext,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const matchUser = await this.userService.userPrismaClient.findFirst({
+      where: {
+        email: body.email,
+      },
+    });
+
+    if (!matchUser) {
+      throw new UnauthorizedException(
+        i18n.t('common.errors.notFound', {
+          args: { element: i18n.t('resource.user') },
+        }),
+      );
+    }
+
+    if (!matchUser.isActive) {
+      throw new UnauthorizedException(i18n.t('auth.errors.accountNotActive'));
+    }
+
+    const passwordMatch = await compare(body.password, matchUser.passwordHash);
+    if (!passwordMatch) {
+      throw new BadRequestException(i18n.t('auth.errors.passwordNotMatch'));
+    }
+
+    const tokens = await this.authService.generateTokens({
+      id: matchUser.id,
+      identifier: matchUser.email,
+      role: matchUser.role,
+    });
+
+    this.authService.attachAccessTokenToCookie(res, tokens.accessToken);
+    this.authService.attachRefreshTokenToCookie(res, tokens.refreshToken);
+    const userProfile = await this.userService.getUserProfile(matchUser.id);
+    return {
+      data: userProfile,
+    };
+  }
+
+  @ApiOperation({ summary: 'Logout' })
+  @ApiResponse({ type: createSingleItemResponseDto(Boolean) })
+  @Post('logout')
+  logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie(ACCESS_TOKEN);
+    res.clearCookie(REFRESH_TOKEN);
+    return { data: true };
+  }
+
+  @ApiOperation({
+    summary: ' Retrieve jwt token from tempkey',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(Boolean) })
+  @IsPublic()
+  @Get('retrieve-tokens-from-tempkey/:id')
+  async retrieveTokensFromTempkey(
+    @Res({ passthrough: true }) res: Response,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @I18n() i18n: I18nContext,
+  ) {
+    const matchTempKey = await this.tempKeyService.checkTempKeyByKey(id);
+    if (!matchTempKey) {
+      throw new NotFoundException(i18n.t('auth.errors.invalidTempkey'));
+    }
+
+    const tempKeyType = matchTempKey.type;
+    if (
+      ![TempKeyType.ACTIVATE_ACCOUNT, TempKeyType.RESET_PASSWORD].includes(
+        tempKeyType,
+      )
+    ) {
+      throw new BadRequestException(i18n.t('auth.errors.invalidTempkey'));
+    }
+    const now = moment();
+    if (matchTempKey.expiresAt && now.isAfter(matchTempKey.expiresAt)) {
+      throw new BadRequestException(i18n.t('auth.errors.tempkeyExpired'));
+    }
+    const token = matchTempKey.token;
+    this.authService.attachAccessTokenToCookie(res, token);
+    this.authService.attachRefreshTokenToCookie(res, token); // we have only 1 key, so we can use the same key for both
+    return { data: true };
+  }
+
+  @ApiOperation({
+    summary: ' activate account, set first name, last name, password',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
+  @Post('activate-account')
+  async activateAccount(
+    @Body() body: ActivateAccountDto,
+    @Res({ passthrough: true }) res: Response,
+    @Req() req: Request,
+  ) {
+    const userPayload = req.user;
+    const updatedUser = await this.userService.userPrismaClient.update({
+      where: { id: userPayload.id },
+      data: {
+        passwordHash: await this.userService.hashPassword(body.password),
+        isActive: true,
+      },
+    });
+    const tokens = await this.authService.generateTokens({
+      id: updatedUser.id,
+      identifier: updatedUser.email,
+      role: updatedUser.role,
+    });
+    this.authService.attachAccessTokenToCookie(res, tokens.accessToken);
+    this.authService.attachRefreshTokenToCookie(res, tokens.refreshToken);
+
+    const userProfile = await this.userService.getUserProfile(updatedUser.id);
+    return { data: userProfile };
+  }
+
+  @ApiOperation({
+    summary: ' Get current user profile',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
+  @Get('me')
+  async getProfile(@Req() req: Request) {
+    const userPayload = req.user;
+
+    return {
+      data: await this.userService.getUserProfile(userPayload.id),
+    };
+  }
+
+  @ApiOperation({
+    summary: ' Update current user profile',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
+  @Patch('me')
+  async updateProfile(@Req() req: Request, @Body() body: UpdateProfileDto) {
+    const userPayload = req.user;
+    const user = await this.userService.checkUserById(userPayload.id);
+    const updatedUser = await this.userService.userPrismaClient.update({
+      where: { id: user.id },
+      data: body,
+    });
+    return { data: updatedUser };
+  }
+
+  @ApiOperation({
+    summary: ' Request reset password',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(Boolean) })
+  @IsPublic()
+  @Post('request-reset-password')
+  async handleResetPasswordRequest(
+    @Body() body: RequestResetPasswordDto,
+    @I18n() i18n: I18nContext,
+  ) {
+    const match = await this.userService.userPrismaClient.findFirst({
+      where: {
+        email: body.email,
+      },
+    });
+    if (!match) {
+      throw new NotFoundException(i18n.t('auth.errors.emailNotFound'));
+    }
+    if (match.lastResetPasswordRequestAt) {
+      const lastResetPasswordRequestAt = moment(
+        match.lastResetPasswordRequestAt,
+      );
+      if (lastResetPasswordRequestAt.isAfter(moment().subtract(1, 'minutes'))) {
+        throw new BadRequestException(
+          i18n.t('auth.errors.tooManyResetPasswordRequests', {
+            args: {
+              wait: 1 + i18n.t('common.nouns.minute(s)'),
+            },
+          }),
+        );
+      }
+    }
+    await this.userService.sendUserResetPasswordEmail(match);
+
+    return { data: true };
+  }
+
+  @ApiOperation({
+    summary: ' Reset password',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
+  @Post('reset-password')
+  async handleResetPassword(
+    @Req() req: Request,
+    @Body() body: ResetPasswordDto,
+  ) {
+    const user = req.user;
+    const updatedUser = await this.userService.userPrismaClient.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await this.userService.hashPassword(body.password),
+      },
+    });
+    const userProfile = await this.userService.getUserProfile(updatedUser.id);
+    return { data: userProfile };
+  }
+
+  @ApiOperation({
+    summary: 'Update password',
+  })
+  @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
+  @Post('update-password')
+  async handleUpdatePassword(
+    @Req() req: Request,
+    @Body() body: UpdatePasswordDto,
+    @I18n() i18n: I18nContext,
+  ) {
+    const user = req.user;
+    const matchUser = await this.userService.userPrismaClient.findUnique({
+      where: { id: user.id },
+    });
+    if (!matchUser) {
+      throw new NotFoundException(
+        i18n.t('common.errors.notFound', {
+          args: {
+            element: i18n.t('resource.user'),
+            id: user.id,
+          },
+        }),
+      );
+    }
+    const passwordMatch = await compare(
+      body.currentPassword,
+      matchUser.passwordHash,
+    );
+    if (!passwordMatch) {
+      throw new BadRequestException(
+        i18n.t('auth.errors.currentPasswordNotMatch'),
+      );
+    }
+    const updatedUser = await this.userService.userPrismaClient.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await this.userService.hashPassword(body.newPassword),
+      },
+    });
+    const userProfile = await this.userService.getUserProfile(updatedUser.id);
+    return { data: userProfile };
+  }
+}

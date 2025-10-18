@@ -1,0 +1,171 @@
+import { JwtService } from '@nestjs/jwt';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { DefaultArgs } from 'generated/prisma/runtime/library';
+import { PrismaService } from '@app/prisma';
+import { Prisma, TempKeyType, User, UserRole } from 'generated/prisma';
+import { hash } from 'bcryptjs';
+import { I18nService } from 'nestjs-i18n';
+import { WithLogger } from '@app/server/common/providers/WithLogger';
+import { getEnv } from '@app/config';
+import { v4 as uuidv4 } from 'uuid';
+import moment from 'moment';
+import { TempKeysService } from '@app/server/api/tempkeys/tempkeys.service';
+import { JwtPayload } from '@app/server/api/auth/dto/jwt.dto';
+import { MailSenderService } from '@app/server/mail-sender/mail-sender.service';
+import { parseExpirationTime } from '@app/server/common/helpers/parsers';
+import { CreateUserDto } from '@app/server/api/users/dto/create-user.dto';
+import { faker } from '@faker-js/faker';
+
+@Injectable()
+export class UsersService extends WithLogger {
+  userPrismaClient: Prisma.UserDelegate<DefaultArgs>;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly i18n: I18nService,
+    private readonly jwtService: JwtService,
+    private readonly tempKeyService: TempKeysService,
+    private readonly mailSenderService: MailSenderService,
+  ) {
+    super();
+    this.userPrismaClient = this.prisma.user;
+  }
+
+  async createUser(payload: CreateUserDto) {
+    const user = await this.userPrismaClient.create({
+      data: {
+        email: payload.email,
+        passwordHash: await this.hashPassword(faker.internet.password()),
+        role: UserRole.USER,
+        isActive: true,
+      },
+    });
+    await this.sendUserActivateAccountEmail(user);
+    return user;
+  }
+
+  getUserProfile(id: number) {
+    return this.userPrismaClient.findUnique({
+      where: { id },
+    });
+  }
+
+  hashPassword(password: string) {
+    return hash(password, 8);
+  }
+
+  async checkUserById(id: number) {
+    const user = await this.userPrismaClient.findUnique({
+      where: { id },
+    });
+    if (!user) {
+      throw new NotFoundException(
+        this.i18n.t('common.errors.notFound', {
+          args: { element: this.i18n.t('resource.user') },
+        }),
+      );
+    }
+    return user;
+  }
+
+  async createTempkey(user: User, type: TempKeyType) {
+    const expirationTime = getEnv(
+      type === TempKeyType.RESET_PASSWORD
+        ? 'JWT_RESET_PASSWORD_EXPIRATION_TIME'
+        : type === TempKeyType.ACTIVATE_ACCOUNT
+          ? 'JWT_ACTIVATE_ACCOUNT_EXPIRATION_TIME'
+          : ('' as any),
+    ) as string;
+    if (!expirationTime) {
+      throw new InternalServerErrorException(
+        this.i18n.t('common.errors.internalServerError'),
+      );
+    }
+    const { value, unit } = parseExpirationTime(expirationTime);
+    if (!value || !unit) {
+      this.logger.error(`Invalid expiration time: ${expirationTime}`);
+      throw new InternalServerErrorException(
+        this.i18n.t('common.errors.internalServerError'),
+      );
+    }
+    const tempKeyId = uuidv4();
+    const jwtToken = await this.jwtService.signAsync({
+      id: user.id,
+      identifier: user.email,
+      role: user.role,
+      tempkeyData: {
+        id: tempKeyId,
+        type: type,
+      },
+    } satisfies JwtPayload);
+    const tempKey = await this.tempKeyService.tempKeyPrismaClient.create({
+      data: {
+        type: type,
+        userId: user.id,
+        token: jwtToken,
+        id: tempKeyId,
+        expiresAt: moment()
+          .add(value, unit as any)
+          .toDate(),
+      },
+    });
+    return tempKey;
+  }
+
+  async sendUserResetPasswordEmail(user: User) {
+    const tempKey = await this.createTempkey(user, TempKeyType.RESET_PASSWORD);
+
+    const sendRes = await this.mailSenderService.sendUserResetPasswordEmail(
+      user.email,
+      tempKey.id,
+    );
+
+    if (!sendRes) {
+      throw new InternalServerErrorException(
+        this.i18n.t('common.errors.internalServerError', {
+          args: {
+            message: this.i18n.t('user.errors.emailSendingFailed'),
+          },
+        }),
+      );
+    }
+    await this.userPrismaClient.update({
+      where: { id: user.id },
+      data: {
+        lastResetPasswordRequestAt: new Date(),
+      },
+    });
+  }
+
+  async sendUserActivateAccountEmail(user: User) {
+    const tempKey = await this.createTempkey(
+      user,
+      TempKeyType.ACTIVATE_ACCOUNT,
+    );
+    const sendRes = await this.mailSenderService.sendUserActivateAccountEmail(
+      user.email,
+      tempKey.id,
+      user,
+    );
+
+    if (!sendRes) {
+      throw new InternalServerErrorException(
+        this.i18n.t('common.errors.internalServerError', {
+          args: {
+            message: this.i18n.t('user.errors.emailSendingFailed'),
+          },
+        }),
+      );
+    }
+    await this.userPrismaClient.update({
+      where: { id: user.id },
+      data: {
+        lastActivationEmailSentAt: new Date(),
+      },
+    });
+  }
+}
