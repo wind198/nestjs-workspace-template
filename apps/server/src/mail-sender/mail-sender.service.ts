@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { MailerService } from '@nestjs-modules/mailer';
 import { render } from '@react-email/components';
 import { ResetPassword } from '@app/emails';
@@ -6,11 +6,16 @@ import { getEnv } from '@app/config';
 import { User } from 'generated/prisma';
 import { ActivateAccount } from '@app/emails';
 import { WithLogger } from '@app/server/common/providers/WithLogger';
+import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 
 @Injectable()
 export class MailSenderService extends WithLogger {
-  constructor(private readonly mailerService: MailerService) {
-    super();
+  constructor(
+    private readonly mailerService: MailerService,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly winstonLogger: WinstonLogger,
+  ) {
+    super(winstonLogger);
   }
 
   async sendUserResetPasswordEmail(email: string, tempKeyId: string) {

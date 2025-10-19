@@ -1,0 +1,3 @@
+errors:
+  notFound: notFound
+  internalServerError: internalServerError

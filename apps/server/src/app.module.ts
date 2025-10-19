@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MailSenderModule } from '@app/server/mail-sender/mail-sender.module';
@@ -10,7 +10,12 @@ import { I18nModule } from '@app/server/i18n/i18n.module';
 import { AmazonStrategy } from '@app/server/amazon.strategy';
 import { AmazonGuard } from '@app/server/amazon.guard';
 import { PrismaModule } from '@app/prisma';
-
+import { join } from 'path';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { WinstonModule } from 'nest-winston';
+import { getEnv } from '@app/config';
+import { APP_PIPE } from '@nestjs/core';
+import { getWinstonModuleOptions } from '@app/config';
 @Module({
   imports: [
     I18nModule,
@@ -20,8 +25,26 @@ import { PrismaModule } from '@app/prisma';
     UserSessionsModule,
     UsersModule,
     AuthModule,
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'public'),
+      serveRoot: '/public',
+    }),
+    WinstonModule.forRoot(getWinstonModuleOptions(getEnv('APP_NAME'))),
   ],
   controllers: [AppController],
-  providers: [AppService, AmazonStrategy, AmazonGuard],
+  providers: [
+    AppService,
+    AmazonStrategy,
+    AmazonGuard,
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        forbidUnknownValues: true,
+        transform: true,
+      }),
+    },
+  ],
 })
 export class AppModule {}

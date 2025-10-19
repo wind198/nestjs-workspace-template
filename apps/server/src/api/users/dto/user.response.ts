@@ -1,7 +1,37 @@
-import { $Enums, User } from 'generated/prisma';
-import { ApiProperty } from '@nestjs/swagger';
+import { User, UserRole, TempKey, UserSession } from 'generated/prisma';
+import { Prisma } from 'generated/prisma';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class UserResponse implements Omit<User, 'passwordHash'> {
+class UserIncludeResponse implements Record<keyof Prisma.UserInclude, unknown> {
+  TempKey: TempKey[] = [];
+
+  UserSession: UserSession[] = [];
+
+  _count: Prisma.UserCountOutputType = {
+    TempKey: 0,
+    UserSession: 0,
+  };
+}
+
+export class UserResponse implements User, Partial<UserIncludeResponse> {
+  @ApiPropertyOptional({ type: [Object], isArray: true })
+  TempKey?: TempKey[] = [];
+
+  @ApiPropertyOptional({ type: [Object], isArray: true })
+  UserSession?: UserSession[] = [];
+
+  @ApiPropertyOptional({
+    type: Object,
+    example: { TempKey: 0, UserSession: 0 },
+  })
+  _count?: Prisma.UserCountOutputType = {
+    TempKey: 0,
+    UserSession: 0,
+  };
+
+  @ApiPropertyOptional()
+  passwordHash: string = '';
+
   @ApiProperty()
   createdAt: Date;
 
@@ -30,8 +60,5 @@ export class UserResponse implements Omit<User, 'passwordHash'> {
   lastName: string | null;
 
   @ApiProperty()
-  amazonId: string | null;
-
-  @ApiProperty()
-  role: $Enums.UserRole;
+  role: UserRole;
 }

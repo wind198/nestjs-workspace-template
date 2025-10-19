@@ -38,12 +38,13 @@ export class UserSessionsService {
     });
   }
 
-  checkUserSession(key: string) {
-    return this.userSessionPrismaClient.findUnique({
+  async checkUserSession(key: string) {
+    const userSession = await this.userSessionPrismaClient.findUnique({
       where: { key },
       include: {
         user: true,
       },
     });
+    return userSession;
   }
 }

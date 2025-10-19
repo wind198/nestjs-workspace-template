@@ -8,7 +8,7 @@ import { getEnv, isDev } from '@app/config';
 import { Response, Request } from 'express';
 import { omit } from 'lodash';
 import { UserSessionsService } from '@app/server/api/user-sessions/user-sessions.service';
-
+import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 @Injectable()
 export class AuthService extends WithLogger {
   constructor(
@@ -16,8 +16,10 @@ export class AuthService extends WithLogger {
     @Inject(forwardRef(() => UsersService))
     private readonly userService: UsersService,
     private readonly userSessionService: UserSessionsService,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly winstonLogger: WinstonLogger,
   ) {
-    super();
+    super(winstonLogger);
   }
 
   async generateAccessToken(payload: JwtPayload, options?: JwtSignOptions) {

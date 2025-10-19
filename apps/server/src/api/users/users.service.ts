@@ -1,5 +1,6 @@
 import { JwtService } from '@nestjs/jwt';
 import {
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -10,7 +11,7 @@ import { Prisma, TempKeyType, User, UserRole } from 'generated/prisma';
 import { hash } from 'bcryptjs';
 import { I18nService } from 'nestjs-i18n';
 import { WithLogger } from '@app/server/common/providers/WithLogger';
-import { getEnv } from '@app/config';
+import { getEnv, isTest } from '@app/config';
 import { v4 as uuidv4 } from 'uuid';
 import moment from 'moment';
 import { TempKeysService } from '@app/server/api/tempkeys/tempkeys.service';
@@ -19,6 +20,8 @@ import { MailSenderService } from '@app/server/mail-sender/mail-sender.service';
 import { parseExpirationTime } from '@app/server/common/helpers/parsers';
 import { CreateUserDto } from '@app/server/api/users/dto/create-user.dto';
 import { faker } from '@faker-js/faker';
+import { get, set } from 'lodash';
+import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 
 @Injectable()
 export class UsersService extends WithLogger {
@@ -30,12 +33,38 @@ export class UsersService extends WithLogger {
     private readonly jwtService: JwtService,
     private readonly tempKeyService: TempKeysService,
     private readonly mailSenderService: MailSenderService,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly winstonLogger: WinstonLogger,
   ) {
-    super();
-    this.userPrismaClient = this.prisma.user;
+    super(winstonLogger);
+    this.userPrismaClient = this.prisma.$extends({
+      query: {
+        user: {
+          $allOperations: async ({ args, operation, query }) => {
+            if (
+              [
+                'findUnique',
+                'findUniqueOrThrow',
+                'findFirst',
+                'findFirstOrThrow',
+                'findMany',
+                'create',
+                'update',
+                'delete',
+              ].includes(operation)
+            ) {
+              if (!get(args, 'select.passwordHash')) {
+                set(args, 'omit.passwordHash', true);
+              }
+            }
+            return await query(args);
+          },
+        },
+      },
+    }).user as Prisma.UserDelegate<DefaultArgs>;
   }
 
-  async createUser(payload: CreateUserDto) {
+  async createUser(payload: CreateUserDto, include?: Prisma.UserInclude) {
     const user = await this.userPrismaClient.create({
       data: {
         email: payload.email,
@@ -43,8 +72,11 @@ export class UsersService extends WithLogger {
         role: UserRole.USER,
         isActive: true,
       },
+      include,
     });
-    await this.sendUserActivateAccountEmail(user);
+    if (!isTest()) {
+      await this.sendUserActivateAccountEmail(user);
+    }
     return user;
   }
 

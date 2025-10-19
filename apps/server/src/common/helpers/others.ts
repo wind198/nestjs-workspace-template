@@ -1,11 +1,16 @@
 import { Request } from 'express';
 import { chunk, random } from 'lodash';
-import { I18nService } from 'nestjs-i18n';
 
 export const isNullOrUndefined = (value: any) => {
   return value === null || value === undefined;
 };
 
+/**
+ * Get the first field that is not null or undefined
+ * @param obj - Object to get the field from
+ * @param fields - List of fields to check
+ * @returns The first field that is not null or undefined
+ */
 export const getFieldWithFallbacks = (
   obj: Record<string, any>,
   fields: string[],
@@ -19,14 +24,18 @@ export const getFieldWithFallbacks = (
   return undefined;
 };
 
-export const appendToPathname = (pathname: string, subPathToAdd: string) => {
-  return [pathname.replace(/\/+$/, ''), subPathToAdd].join('/');
-};
-
 export const sleep = (ms: number) => {
   return new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+/**
+ * Send requests in chunks to avoid overwhelming the server
+ * @param itemList - List of items to send requests for
+ * @param requestFn - Function to send request for each item
+ * @param chunkSize - Size of each chunk, to be sent together by Promise.all
+ * @param sleepMs - Time to sleep between chunks
+ * @returns List of results
+ */
 export const sendRequestInChunks = async <T, P = any>(
   itemList: T[],
   requestFn: (item: T) => Promise<P>,
@@ -41,40 +50,15 @@ export const sendRequestInChunks = async <T, P = any>(
   return results;
 };
 
-export const getLangFromRequest = (
-  request: Request,
-  i18nService: I18nService,
-) => {
-  const langAcceptHeader =
-    request.headers['accept-language']?.split(',')[0]?.trim() || '';
-  const lang = i18nService.resolveLanguage(langAcceptHeader);
-  return lang;
-};
-
-export const generateCodeFromName = (name: string) => {
-  return name
-    .split(' ')
-    .map((word) => word.charAt(0).toUpperCase())
-    .join('');
-};
-
+/**
+ * Use this to define the random sleep time for cron jobs, avoid running multiple cron job at the same time
+ * @param options - Options for the random sleep time
+ * @returns
+ */
 export const getRandomSleepTimeForCronJob = (options?: {
   min?: number;
   max?: number;
 }) => {
   const { min = 5000, max = 10000 } = options || {};
   return random(min, max);
-};
-
-export const generateItemListString = (list: string[], limit?: number) => {
-  if (limit && limit >= list.length) {
-    limit = 0;
-  }
-  if (!list.length) return '';
-  if (list.length === 1) return list[0];
-  if (list.length === 2) return list.join(', ');
-  return [
-    list.slice(0, limit || list.length - 1).join(', '),
-    ...(limit ? [`${list.length - limit} more`] : [list[list.length - 1]]),
-  ].join(' and ');
 };

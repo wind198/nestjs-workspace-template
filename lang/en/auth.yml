@@ -1,0 +1,14 @@
+errors:
+  roleInfoNotFound: roleInfoNotFound
+  roleNotAllowed: roleNotAllowed
+  unauthorized: unauthorized
+  invalidAccessToken: invalidAccessToken
+  invalidRefreshToken: invalidRefreshToken
+  expiredRefreshToken: expiredRefreshToken
+  accountNotActive: accountNotActive
+  passwordNotMatch: passwordNotMatch
+  invalidTempkey: invalidTempkey
+  tempkeyExpired: tempkeyExpired
+  emailNotFound: emailNotFound
+  tooManyResetPasswordRequests: tooManyResetPasswordRequests
+  currentPasswordNotMatch: currentPasswordNotMatch

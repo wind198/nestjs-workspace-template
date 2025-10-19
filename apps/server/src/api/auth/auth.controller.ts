@@ -14,10 +14,11 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  Inject,
 } from '@nestjs/common';
 import { compare } from 'bcryptjs';
 import type { Response, Request } from 'express';
-import { I18n, I18nContext } from 'nestjs-i18n';
+import { I18n, I18nContext, I18nService } from 'nestjs-i18n';
 import { IsPublic } from '@app/server/common/decorators/is-public.decorator';
 import { WithLogger } from '@app/server/common/providers/WithLogger';
 import { ACCESS_TOKEN } from '@app/server/common/constants/keys';
@@ -33,6 +34,8 @@ import { RequestResetPasswordDto } from '@app/server/api/auth/dto/request-reset-
 import { ResetPasswordDto } from '@app/server/api/auth/dto/reset-password.dto';
 import { UpdateProfileDto } from '@app/server/api/auth/dto/update-profile.dto';
 import { TempKeyType } from 'generated/prisma/';
+import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
+import { merge } from 'lodash';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -41,8 +44,11 @@ export class AuthController extends WithLogger {
     private readonly authService: AuthService,
     private readonly userService: UsersService,
     private readonly tempKeyService: TempKeysService,
+    private readonly i18n: I18nService,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly winstonLogger: WinstonLogger,
   ) {
-    super();
+    super(winstonLogger);
   }
 
   @ApiOperation({
@@ -54,30 +60,44 @@ export class AuthController extends WithLogger {
   @Post('login')
   async login(
     @Body() body: UserLoginDto,
-    @I18n() i18n: I18nContext,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const matchUser = await this.userService.userPrismaClient.findFirst({
-      where: {
-        email: body.email,
-      },
-    });
+    const [userPasswordData, userData] = await Promise.all([
+      this.userService.userPrismaClient.findFirst({
+        where: {
+          email: body.email,
+        },
+      }),
+      this.userService.userPrismaClient.findFirst({
+        where: {
+          email: body.email,
+        },
+        select: {
+          passwordHash: true,
+        },
+      }),
+    ]);
 
+    const matchUser = merge(userPasswordData, userData);
     if (!matchUser) {
       throw new UnauthorizedException(
-        i18n.t('common.errors.notFound', {
-          args: { element: i18n.t('resource.user') },
+        this.i18n.t('common.errors.notFound', {
+          args: { element: this.i18n.t('resource.user') },
         }),
       );
     }
 
     if (!matchUser.isActive) {
-      throw new UnauthorizedException(i18n.t('auth.errors.accountNotActive'));
+      throw new UnauthorizedException(
+        this.i18n.t('auth.errors.accountNotActive'),
+      );
     }
 
     const passwordMatch = await compare(body.password, matchUser.passwordHash);
     if (!passwordMatch) {
-      throw new BadRequestException(i18n.t('auth.errors.passwordNotMatch'));
+      throw new BadRequestException(
+        this.i18n.t('auth.errors.passwordNotMatch'),
+      );
     }
 
     const tokens = await this.authService.generateTokens({
@@ -265,6 +285,7 @@ export class AuthController extends WithLogger {
     const user = req.user;
     const matchUser = await this.userService.userPrismaClient.findUnique({
       where: { id: user.id },
+      select: { passwordHash: true },
     });
     if (!matchUser) {
       throw new NotFoundException(

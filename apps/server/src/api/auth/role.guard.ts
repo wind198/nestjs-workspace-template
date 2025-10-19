@@ -1,5 +1,4 @@
 import { IS_PUBLIC, REQUIRE_ROLE } from '@app/server/common/constants/keys';
-import { getLangFromRequest } from '@app/server/common/helpers/others';
 import {
   CanActivate,
   ExecutionContext,
@@ -34,10 +33,9 @@ export class RoleGuard implements CanActivate {
       return true;
     }
 
-    const lang = getLangFromRequest(request, this.i18nService);
     if (!role) {
       throw new ForbiddenException(
-        this.i18nService.t('auth.roleInfoNotFound', { lang }),
+        this.i18nService.t('auth.errors.roleInfoNotFound'),
       );
     }
     const requiredRoles = this.reflector.getAllAndOverride<
@@ -45,7 +43,7 @@ export class RoleGuard implements CanActivate {
     >(REQUIRE_ROLE, [context.getHandler(), context.getClass()]);
     if (requiredRoles?.length > 0 && !requiredRoles.includes(role)) {
       throw new ForbiddenException(
-        this.i18nService.t('auth.roleNotAllowed', { lang }),
+        this.i18nService.t('auth.errors.roleNotAllowed'),
       );
     }
     return true;

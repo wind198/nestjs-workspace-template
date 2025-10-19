@@ -62,7 +62,7 @@ export default tseslint.config(
       'lines-between-class-members': 'warn',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-redundant-type-constituents': 'off',
-      '@darraghor/nestjs-typed/injectable-should-be-provided': 'warn',
+      '@darraghor/nestjs-typed/injectable-should-be-provided': 'off',
     },
   },
 );

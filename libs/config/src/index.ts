@@ -64,10 +64,11 @@ export const isTest = () => {
 };
 
 export const getLogLevel = () => {
-  const defaultVal = isDev() ? 'debug' : 'log';
-  const logLevel = process.env['WEB_API_LOG_LEVEL'] ?? defaultVal;
+  const logLevel = getEnv('SERVER_LOG_LEVEL') || (isDev() ? 'debug' : 'log');
   return logLevel;
 };
+
+export * from './winston';
 
 console.log('Starting server with the following environment variables:');
 console.table(env);

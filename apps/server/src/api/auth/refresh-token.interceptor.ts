@@ -3,6 +3,7 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
+  Inject,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { mergeMap } from 'rxjs/operators';
@@ -10,6 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Response, Request } from 'express';
 import { AuthService } from '@app/server/api/auth/auth.service';
 import { WithLogger } from '@app/server/common/providers/WithLogger';
+import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 
 declare module 'express' {
   interface Request {
@@ -25,8 +27,10 @@ export class RefreshTokenInterceptor
   constructor(
     private jwtService: JwtService,
     private authService: AuthService,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly winstonLogger: WinstonLogger,
   ) {
-    super();
+    super(winstonLogger);
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {

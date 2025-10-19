@@ -14,9 +14,15 @@ export class PopulateCountArrayQuery {
   @ArrayMaxSize(5)
   @IsString({ each: true })
   @Transform(({ value }) => {
-    return (value as string)?.split(',').map((item) => item.trim());
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return value.split(',').map((item) => item.trim());
+    }
+    return [];
   })
-  populate: string[] = []; // we only allow populate full relation, without pick fields
+  populate?: string[] = []; // we only allow populate full relation, without pick fields
 
   @ApiPropertyOptional({
     description: 'Count array',
@@ -29,7 +35,13 @@ export class PopulateCountArrayQuery {
   @ArrayMaxSize(5)
   @IsString({ each: true })
   @Transform(({ value }) => {
-    return (value as string)?.split(',').map((item) => item.trim());
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return value.split(',').map((item) => item.trim());
+    }
+    return [];
   })
-  count: string[] = [];
+  count?: string[] = [];
 }

@@ -1,9 +1,15 @@
+import { GetListQuery } from '@app/server/common/class-validators/get-list-query.dto';
 import { DEFAULT_PAGE_SIZE } from '@app/server/common/constants/rules';
 import { checkShouldAddDeletedAtForRelation } from '@app/server/common/helpers/prisma';
 import { IPagination } from '@app/server/common/types/pagination';
 import { ISort } from '@app/server/common/types/sort';
-import { get, isEmpty, set } from 'lodash';
+import { isEmpty, set } from 'lodash';
 
+/**
+ * Parse the sort to the prisma order by
+ * @param sort - Sort to parse
+ * @returns The prisma order by
+ */
 export const parseSortToPrismaOrderBy = (sort: ISort[]) => {
   if (!sort?.length) return { createdAt: 'desc' as const };
   return sort.reduce(
@@ -15,10 +21,15 @@ export const parseSortToPrismaOrderBy = (sort: ISort[]) => {
   );
 };
 
+/**
+ * Parse the populate to the prisma include
+ * @param populate - Relations to parse (can be nested), example: ['user','user.profile', 'user.address']
+ * @returns The prisma include
+ */
 export const parsePopulateToPrismaInclude = (
   populate: string[],
-  count: string[] = [],
-) => {
+): Record<string, any> | undefined => {
+  if (!populate?.length) return;
   const getInclude = (item: string): object => {
     const firstDot = item.indexOf('.');
     if (firstDot === -1) {
@@ -37,48 +48,63 @@ export const parsePopulateToPrismaInclude = (
     }
     return output;
   };
-  let output = (populate ?? []).map((key) => {
+
+  const output = (populate ?? []).map((key) => {
     const output = getInclude(key);
     return output;
   });
-  output = Object.assign({}, ...output);
-  output = Object.assign(output, {
-    _count: {
-      select: count.reduce(
-        (acc, item) => {
-          acc[item] = true;
-          return acc;
-        },
-        {} as Record<string, boolean>,
-      ),
-    },
-  });
-  if (isEmpty(get(output, '_count.select'))) {
-    delete (output as any)._count;
-  }
-  return output as any;
+
+  return Object.assign({}, ...output);
 };
 
+/**
+ * Parse the count to the prisma select
+ * @param count - relations to count, example: ['user','post']
+ * @returns The prisma select
+ */
+export const parseCountToPrismaSelect = (
+  count: string[],
+): Record<string, any> | undefined => {
+  if (!count?.length) return;
+
+  const countSelect = count.reduce(
+    (acc, item) => {
+      acc[item] = true;
+      return acc;
+    },
+    {} as Record<string, boolean>,
+  );
+
+  if (isEmpty(countSelect)) {
+    return {};
+  }
+
+  return {
+    _count: {
+      select: countSelect,
+    },
+  };
+};
+
+/**
+ * Parse the pagination to the skip and take
+ * @param pagination - Pagination to parse, example: { page: 1, pageSize: 10 }
+ * @returns The skip and take, fallback to default page size if not provided
+ */
 export const parseSkipLimitFromPagination = (pagination: IPagination) => {
-  const page = pagination.page ?? 1;
-  const pageSize = pagination.pageSize ?? DEFAULT_PAGE_SIZE;
+  const page = pagination?.page ?? 1;
+  const pageSize = pagination?.pageSize ?? DEFAULT_PAGE_SIZE;
   return {
     skip: (page - 1) * pageSize,
     take: pageSize,
   };
 };
-export const parseToJsonIfString = (value: string | object): object => {
-  try {
-    if (typeof value === 'string' && value.trim() !== '') {
-      return JSON.parse(value);
-    }
-  } catch (error) {
-    console.error(error);
-    return {};
-  }
-  return value as object;
-};
 
+/**
+ * Parse the expiration time of @nestjs/jwt format
+ * @param expirationTime - Expiration time to parse, example: '1h', '1d', '1w'
+ * @returns The value and unit
+ */
 export const parseExpirationTime = (expirationTime: string) => {
   const value = parseInt(expirationTime);
   const unit = expirationTime.charAt(expirationTime.length - 1);
@@ -86,4 +112,56 @@ export const parseExpirationTime = (expirationTime: string) => {
     throw new Error('Invalid expiration time');
   }
   return { value, unit };
+};
+
+/**
+ * Parse the filters object sent by frontend to the prisma where
+ * @param filters - Filters to parse
+ * @returns The prisma where
+ */
+export const parseQsQueryToPrismaWhere = (
+  filters: GetListQuery['filters'],
+): Record<string, any> | undefined => {
+  if (isEmpty(filters)) return;
+  const isPrimitive = (value: any): boolean => {
+    return (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    );
+  };
+
+  const mapObject = (input: Record<string, any>) => {
+    const output = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (value === null) {
+        output[key] = null;
+      } else if (!value) {
+        continue;
+      } else if (
+        key === 'q' &&
+        (typeof value === 'string' || typeof value === 'number')
+      ) {
+        output[key] = {
+          contains: value.toString(),
+          mode: 'insensitive',
+        };
+      } else if (isPrimitive(value)) {
+        output[key] = value;
+      } else if (isEmpty(value)) {
+        continue;
+      } else if (Array.isArray(value)) {
+        output[key] = value.map((item) =>
+          isPrimitive(item) || item === null || item === undefined
+            ? item
+            : mapObject(item),
+        );
+      } else {
+        output[key] = mapObject(value);
+      }
+    }
+    return output;
+  };
+
+  return mapObject(filters);
 };

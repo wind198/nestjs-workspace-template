@@ -6,11 +6,11 @@ import {
   IS_PUBLIC,
   REFRESH_TOKEN,
 } from '@app/server/common/constants/keys';
-import { getLangFromRequest } from '@app/server/common/helpers/others';
 import { WithLogger } from '@app/server/common/providers/WithLogger';
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   InternalServerErrorException,
   UnauthorizedException,
@@ -21,7 +21,7 @@ import { Response, Request } from 'express';
 import { TempKeyType } from 'generated/prisma';
 import { I18nService } from 'nestjs-i18n';
 import { UserSessionsService } from '@app/server/api/user-sessions/user-sessions.service';
-
+import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 @Injectable()
 export class JwtGuard extends WithLogger implements CanActivate {
   constructor(
@@ -29,15 +29,16 @@ export class JwtGuard extends WithLogger implements CanActivate {
     private readonly userService: UsersService,
     private readonly authService: AuthService,
     private readonly jwtService: JwtService,
-    private readonly i18nService: I18nService,
+    private readonly i18n: I18nService,
     private readonly userSessionService: UserSessionsService,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly winstonLogger: WinstonLogger,
   ) {
-    super();
+    super(winstonLogger);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request: Request = context.switchToHttp().getRequest();
-    const lang = getLangFromRequest(request, this.i18nService);
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
       context.getHandler(),
       context.getClass(),
@@ -50,21 +51,17 @@ export class JwtGuard extends WithLogger implements CanActivate {
     const refreshToken = cookie?.[REFRESH_TOKEN];
 
     if (!accessToken || !refreshToken) {
-      throw new UnauthorizedException(
-        this.i18nService.t('auth.errors.unauthorized', { lang }),
-      );
+      const msg = this.i18n.t('auth.errors.unauthorized');
+      throw new UnauthorizedException(msg);
     }
 
-     
-    let userPayload: JwtPayload | 'expired' = await this.validateAccessToken(
-      accessToken,
-      lang,
-    );
+    let userPayload: JwtPayload | 'expired' =
+      await this.validateAccessToken(accessToken);
     if (userPayload === 'expired') {
       userPayload = await this.validateRefreshToken(refreshToken);
       request.shouldRefreshToken = true;
     }
-    this.validateJwtPayloadForTempkeyData(userPayload, request, lang);
+    this.validateJwtPayloadForTempkeyData(userPayload, request);
 
     const matchUser = await this.userService.userPrismaClient.findFirst({
       where: {
@@ -74,7 +71,7 @@ export class JwtGuard extends WithLogger implements CanActivate {
     });
     if (!matchUser) {
       throw new UnauthorizedException(
-        this.i18nService.t('auth.errors.invalidAccessToken', { lang }),
+        this.i18n.t('auth.errors.invalidAccessToken'),
       );
     }
     request.user = userPayload;
@@ -82,10 +79,7 @@ export class JwtGuard extends WithLogger implements CanActivate {
     return true;
   }
 
-  async validateAccessToken(
-    token: string,
-    lang: string,
-  ): Promise<JwtPayload | 'expired'> {
+  async validateAccessToken(token: string): Promise<JwtPayload | 'expired'> {
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
       return payload;
@@ -94,11 +88,11 @@ export class JwtGuard extends WithLogger implements CanActivate {
         return 'expired';
       } else if (error instanceof JsonWebTokenError) {
         throw new UnauthorizedException(
-          this.i18nService.t('auth.errors.invalidAccessToken', { lang }),
+          this.i18n.t('auth.errors.invalidAccessToken'),
         );
       }
       throw new InternalServerErrorException(
-        this.i18nService.t('common.errors.internalServerError', { lang }),
+        this.i18n.t('common.errors.internalServerError'),
       );
     }
   }
@@ -107,12 +101,12 @@ export class JwtGuard extends WithLogger implements CanActivate {
     const matchSession = await this.userSessionService.checkUserSession(token);
     if (!matchSession) {
       throw new UnauthorizedException(
-        this.i18nService.t('auth.errors.invalidRefreshToken'),
+        this.i18n.t('auth.errors.invalidRefreshToken'),
       );
     }
     if (matchSession.expiresAt < new Date()) {
       throw new UnauthorizedException(
-        this.i18nService.t('auth.errors.expiredRefreshToken'),
+        this.i18n.t('auth.errors.expiredRefreshToken'),
       );
     }
     return {
@@ -122,11 +116,7 @@ export class JwtGuard extends WithLogger implements CanActivate {
     } satisfies JwtPayload;
   }
 
-  validateJwtPayloadForTempkeyData(
-    payload: JwtPayload,
-    req: Request,
-    lang: string,
-  ) {
+  validateJwtPayloadForTempkeyData(payload: JwtPayload, req: Request) {
     const url = req.url;
     if (url.startsWith('/auth/activate-account')) {
       if (payload.tempkeyData?.type !== TempKeyType.ACTIVATE_ACCOUNT) {
@@ -136,7 +126,7 @@ export class JwtGuard extends WithLogger implements CanActivate {
           )}`,
         );
         throw new UnauthorizedException(
-          this.i18nService.t('auth.errors.invalidAccessToken', { lang }),
+          this.i18n.t('auth.errors.invalidAccessToken'),
         );
       }
     }
@@ -148,7 +138,7 @@ export class JwtGuard extends WithLogger implements CanActivate {
           )}`,
         );
         throw new UnauthorizedException(
-          this.i18nService.t('auth.errors.invalidAccessToken', { lang }),
+          this.i18n.t('auth.errors.invalidAccessToken'),
         );
       }
     }

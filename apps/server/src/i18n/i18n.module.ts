@@ -16,6 +16,8 @@ declare module 'express' {
   }
 }
 
+const langPath = path.resolve(process.cwd(), 'lang');
+console.log(`Loading i18n files from: ${langPath}`);
 export const i18nOptions: I18nOptions = {
   fallbackLanguage: 'en',
   fallbacks: {
@@ -29,7 +31,7 @@ export const i18nOptions: I18nOptions = {
     'en-IE': 'en',
   },
   loaderOptions: {
-    path: path.resolve(process.cwd(), 'lang'),
+    path: langPath,
     // load yaml files
     watch: true,
   },
