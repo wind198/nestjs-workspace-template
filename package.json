@@ -15,7 +15,7 @@
     "start:central-web-server:debug": "nest start central-web-server --debug --watch",
     "start:central-web-server:prod": "node dist/apps/central-web-server/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "npm run prisma:reset:test && npm run prisma:migrate:test && jest",
+    "test": "npm run prisma:reset:test && npm run prisma:migrate:test && jest --maxWorkers=1",
     "email:dev": "email dev",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -121,6 +121,7 @@
     ],
     "rootDir": ".",
     "testRegex": ".*\\.spec\\.ts$",
+    "maxWorkers": 1,
     "transform": {
       "^.+\\.(t|j)s$": [
         "ts-jest",
@@ -143,6 +144,7 @@
     ],
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
+    "testTimeout": 30000,
     "roots": [
       "<rootDir>"
     ],

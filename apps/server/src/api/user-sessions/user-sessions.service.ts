@@ -6,7 +6,12 @@ import moment from 'moment';
 import { getEnv } from '@app/config';
 import { parseExpirationTime } from '@app/server/common/helpers/parsers';
 import { I18nService } from 'nestjs-i18n';
+import { merge } from 'lodash';
 
+export type CreateUserSessionPayload = Omit<
+  Prisma.UserSessionCreateInput,
+  'expiresAt'
+>;
 @Injectable()
 export class UserSessionsService {
   userSessionPrismaClient: Prisma.UserSessionDelegate<DefaultArgs>;
@@ -18,7 +23,7 @@ export class UserSessionsService {
     this.userSessionPrismaClient = this.prisma.userSession;
   }
 
-  createUserSession(userId: number) {
+  createUserSession(payload: CreateUserSessionPayload) {
     const refreshTokenExpirationTime = getEnv(
       'JWT_REFRESH_TOKEN_EXPIRATION_TIME',
     );
@@ -30,7 +35,7 @@ export class UserSessionsService {
     }
     return this.userSessionPrismaClient.create({
       data: {
-        userId,
+        ...payload,
         expiresAt: moment()
           .add(value, unit as any)
           .toDate(),
@@ -38,13 +43,50 @@ export class UserSessionsService {
     });
   }
 
-  async checkUserSession(key: string) {
-    const userSession = await this.userSessionPrismaClient.findUnique({
+  async checkUserSession(
+    key: string,
+    additionalArgs?: Prisma.UserSessionFindFirstArgs<DefaultArgs>,
+  ) {
+    const {
+      where: additionalWhere,
+      include: additionalInclude,
+      ...rest
+    } = additionalArgs || {};
+    const userSession = await this.userSessionPrismaClient.findFirst(
+      merge(
+        {},
+        {
+          where: {
+            AND: [{ key }, additionalWhere].filter(
+              Boolean,
+            ) as Prisma.UserSessionWhereInput,
+          },
+          include: {
+            user: true,
+            ...additionalInclude,
+          },
+        },
+        rest,
+      ),
+    );
+    return userSession;
+  }
+
+  logOutUserSession(key: string) {
+    return this.userSessionPrismaClient.update({
       where: { key },
-      include: {
-        user: true,
+      data: {
+        loggedOutAt: new Date(),
       },
     });
-    return userSession;
+  }
+
+  revokeUserSession(key: string) {
+    return this.userSessionPrismaClient.update({
+      where: { key },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
   }
 }

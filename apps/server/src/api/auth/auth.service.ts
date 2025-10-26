@@ -7,7 +7,10 @@ import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { getEnv, isDev } from '@app/config';
 import { Response, Request } from 'express';
 import { omit } from 'lodash';
-import { UserSessionsService } from '@app/server/api/user-sessions/user-sessions.service';
+import {
+  CreateUserSessionPayload,
+  UserSessionsService,
+} from '@app/server/api/user-sessions/user-sessions.service';
 import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 @Injectable()
 export class AuthService extends WithLogger {
@@ -38,17 +41,19 @@ export class AuthService extends WithLogger {
     return accessToken;
   }
 
-  async generateRefreshToken(payload: JwtPayload) {
-    const refreshToken = await this.userSessionService.createUserSession(
-      payload.id,
-    );
+  async generateRefreshToken(payload: CreateUserSessionPayload) {
+    const refreshToken =
+      await this.userSessionService.createUserSession(payload);
     return refreshToken.key;
   }
 
-  async generateTokens(payload: JwtPayload) {
+  async generateTokens(
+    jwtPayload: JwtPayload,
+    createUserSessionPayload: CreateUserSessionPayload,
+  ) {
     const [accessToken, refreshToken] = await Promise.all([
-      this.generateAccessToken(payload),
-      this.generateRefreshToken(payload),
+      this.generateAccessToken(jwtPayload),
+      this.generateRefreshToken(createUserSessionPayload),
     ]);
     return { accessToken, refreshToken };
   }

@@ -20,7 +20,7 @@ import { MailSenderService } from '@app/server/mail-sender/mail-sender.service';
 import { parseExpirationTime } from '@app/server/common/helpers/parsers';
 import { CreateUserDto } from '@app/server/api/users/dto/create-user.dto';
 import { faker } from '@faker-js/faker';
-import { get, set } from 'lodash';
+import { get, merge, set } from 'lodash';
 import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 
 @Injectable()
@@ -90,10 +90,23 @@ export class UsersService extends WithLogger {
     return hash(password, 8);
   }
 
-  async checkUserById(id: number) {
-    const user = await this.userPrismaClient.findUnique({
-      where: { id },
-    });
+  async checkUserById(
+    id: number,
+    additionalArgs?: Partial<Prisma.UserFindFirstArgs<DefaultArgs>>,
+  ) {
+    const { where: additionalWhere, ...rest } = additionalArgs || {};
+    const user = await this.userPrismaClient.findFirst(
+      merge(
+        {
+          where: {
+            AND: [{ id }, additionalWhere].filter(
+              Boolean,
+            ) as Prisma.UserWhereInput,
+          },
+        },
+        rest,
+      ),
+    );
     if (!user) {
       throw new NotFoundException(
         this.i18n.t('common.errors.notFound', {

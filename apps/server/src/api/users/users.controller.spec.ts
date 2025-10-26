@@ -67,7 +67,10 @@ describe('UsersController (integration)', () => {
 
   // Helper function to create authenticated user and get cookies
   const createAuthenticatedUser = async () => {
-    const { user, email, password } = await mockUser({ password: 'password' });
+    const { user, email, password } = await mockUser({
+      password: 'password',
+      email: 'auth@test.com', // Use a specific email that won't interfere with search tests
+    });
 
     const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
@@ -180,9 +183,9 @@ describe('UsersController (integration)', () => {
         .map((user) => user.email)
         .sort();
       expect(responseEmails).toEqual([
+        'auth@test.com', // authenticated user email
         emails[0],
         emails[1],
-        expect.any(String),
       ]);
     });
 
@@ -623,6 +626,237 @@ describe('UsersController (integration)', () => {
         .expect(200);
 
       expect(response.body.data).toHaveLength(2);
+    });
+
+    it('should search users by query string', async () => {
+      const { cookieString } = await createAuthenticatedUser();
+
+      // Create users with specific emails for testing search
+      await mockUser({
+        email: 'john.doe@example.com',
+        password: 'password',
+      });
+      await mockUser({
+        email: 'jane.smith@test.com',
+        password: 'password',
+      });
+      await mockUser({
+        email: 'bob.wilson@example.org',
+        password: 'password',
+      });
+
+      // Search for users with 'example' in their email
+      const response = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', cookieString)
+        .query(
+          stringify({
+            pagination: { page: 1, pageSize: 10 },
+            filters: { q: 'example' },
+            sort: [],
+          } satisfies GetListQuery),
+        )
+        .expect(200);
+
+      expect(response.body.data).toHaveLength(2);
+      expect(response.body.pagination.total).toBe(2);
+
+      // Check that the returned users contain 'example' in their email
+      const emails = response.body.data.map((user: any) => user.email);
+      expect(emails).toContain('john.doe@example.com');
+      expect(emails).toContain('bob.wilson@example.org');
+      expect(emails).not.toContain('jane.smith@test.com');
+
+      // Verify that the search was performed correctly by checking the query was processed
+      // The 'q' field should have been used for searching across searchable fields
+      expect(
+        response.body.data.every(
+          (user: any) =>
+            user.email.includes('example') ||
+            user.id.toString().includes('example'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should search users by ID', async () => {
+      const { cookieString } = await createAuthenticatedUser();
+
+      const { user: user1 } = await mockUser({
+        email: 'user1@example.com',
+        password: 'password',
+      });
+      await mockUser({
+        email: 'user2@example.com',
+        password: 'password',
+      });
+
+      // Search for user by ID
+      const response = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', cookieString)
+        .query(
+          stringify({
+            pagination: { page: 1, pageSize: 10 },
+            filters: { q: user1.id.toString() },
+            sort: [],
+          } satisfies GetListQuery),
+        )
+        .expect(200);
+
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.pagination.total).toBe(1);
+      expect(response.body.data[0].id).toBe(user1.id);
+
+      // Verify that the search was performed using the 'q' field for ID search
+      expect(response.body.data[0].id.toString()).toContain(
+        user1.id.toString(),
+      );
+    });
+
+    it('should search users with case insensitive query', async () => {
+      const { cookieString } = await createAuthenticatedUser();
+
+      const { user } = await mockUser({
+        email: 'John.Doe@EXAMPLE.COM',
+        password: 'password',
+      });
+
+      // Search with lowercase query
+      const response = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', cookieString)
+        .query(
+          stringify({
+            pagination: { page: 1, pageSize: 10 },
+            filters: { q: 'john' },
+            sort: [],
+          } satisfies GetListQuery),
+        )
+        .expect(200);
+
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.pagination.total).toBe(1);
+      expect(response.body.data[0].id).toBe(user.id);
+
+      // Verify that the case-insensitive search worked using the 'q' field
+      expect(response.body.data[0].email.toLowerCase()).toContain('john');
+    });
+
+    it('should handle empty search query', async () => {
+      const { cookieString } = await createAuthenticatedUser();
+
+      await mockUser({ password: 'password' });
+
+      const response = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', cookieString)
+        .query(
+          stringify({
+            pagination: { page: 1, pageSize: 10 },
+            filters: { q: '' },
+            sort: [],
+          } satisfies GetListQuery),
+        )
+        .expect(200);
+
+      // Should return all users when search query is empty
+      expect(response.body.data).toHaveLength(2);
+
+      // Verify that empty 'q' field doesn't affect the search (returns all users)
+      // This tests that the parser correctly handles empty 'q' values
+      expect(response.body.data).toBeDefined();
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it('should combine search query with other filters', async () => {
+      const { cookieString } = await createAuthenticatedUser();
+
+      // Create users with different roles and emails
+      await mockUser({
+        email: 'admin@example.com',
+        password: 'password',
+        role: UserRole.ROOT_ADMIN,
+      });
+      const { user: user2 } = await mockUser({
+        email: 'user@example.com',
+        password: 'password',
+        role: UserRole.USER,
+      });
+      await mockUser({
+        email: 'admin@test.com',
+        password: 'password',
+        role: UserRole.ROOT_ADMIN,
+      });
+
+      // Search for 'example' AND role = USER
+      const response = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', cookieString)
+        .query(
+          stringify({
+            pagination: { page: 1, pageSize: 10 },
+            filters: {
+              q: 'example',
+              role: UserRole.USER,
+            },
+            sort: [],
+          } satisfies GetListQuery),
+        )
+        .expect(200);
+
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.pagination.total).toBe(1);
+      expect(response.body.data[0].id).toBe(user2.id);
+
+      // Verify that both the 'q' field search and role filter worked together
+      expect(response.body.data[0].email).toContain('example');
+      expect(response.body.data[0].role).toBe(UserRole.USER);
+    });
+
+    it('should verify q field is properly processed in search query', async () => {
+      const { cookieString } = await createAuthenticatedUser();
+
+      // Create users with specific data for testing
+      await mockUser({
+        email: 'test@example.com',
+        password: 'password',
+      });
+      await mockUser({
+        email: 'another@test.org',
+        password: 'password',
+      });
+
+      // Test that 'q' field searches across multiple searchable fields
+      const response = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', cookieString)
+        .query(
+          stringify({
+            pagination: { page: 1, pageSize: 10 },
+            filters: {
+              q: 'test',
+              isActive: true,
+            },
+            sort: [],
+          } satisfies GetListQuery),
+        )
+        .expect(200);
+
+      // Should find both users since 'test' appears in both emails
+      expect(response.body.data).toHaveLength(3); // 2 created + 1 authenticated user
+      expect(response.body.pagination.total).toBe(3);
+
+      // Verify that all returned users contain 'test' in their searchable fields
+      const foundUsers = response.body.data.filter(
+        (user: any) =>
+          user.email.includes('test') || user.id.toString().includes('test'),
+      );
+      expect(foundUsers.length).toBeGreaterThan(0);
+
+      // Verify that the 'q' field was properly processed and didn't interfere with other filters
+      expect(
+        response.body.data.every((user: any) => user.isActive === true),
+      ).toBe(true);
     });
   });
 

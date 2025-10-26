@@ -36,6 +36,11 @@ import { UpdateProfileDto } from '@app/server/api/auth/dto/update-profile.dto';
 import { TempKeyType } from 'generated/prisma/';
 import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 import { merge } from 'lodash';
+import { UserSessionsService } from '@app/server/api/user-sessions/user-sessions.service';
+import {
+  extractIpAddressFromRequest,
+  extractUserAgentFromRequest,
+} from '@app/server/common/helpers/data-extrators';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -47,6 +52,7 @@ export class AuthController extends WithLogger {
     private readonly i18n: I18nService,
     @Inject(WINSTON_MODULE_PROVIDER)
     private readonly winstonLogger: WinstonLogger,
+    private readonly userSessionsService: UserSessionsService,
   ) {
     super(winstonLogger);
   }
@@ -61,6 +67,7 @@ export class AuthController extends WithLogger {
   async login(
     @Body() body: UserLoginDto,
     @Res({ passthrough: true }) res: Response,
+    @Req() req: Request,
   ) {
     const [userPasswordData, userData] = await Promise.all([
       this.userService.userPrismaClient.findFirst({
@@ -100,11 +107,22 @@ export class AuthController extends WithLogger {
       );
     }
 
-    const tokens = await this.authService.generateTokens({
-      id: matchUser.id,
-      identifier: matchUser.email,
-      role: matchUser.role,
-    });
+    const tokens = await this.authService.generateTokens(
+      {
+        id: matchUser.id,
+        identifier: matchUser.email,
+        role: matchUser.role,
+      },
+      {
+        user: {
+          connect: {
+            id: matchUser.id,
+          },
+        },
+        ipAddress: extractIpAddressFromRequest(req),
+        userAgent: extractUserAgentFromRequest(req),
+      },
+    );
 
     this.authService.attachAccessTokenToCookie(res, tokens.accessToken);
     this.authService.attachRefreshTokenToCookie(res, tokens.refreshToken);
@@ -117,7 +135,14 @@ export class AuthController extends WithLogger {
   @ApiOperation({ summary: 'Logout' })
   @ApiResponse({ type: createSingleItemResponseDto(Boolean) })
   @Post('logout')
-  logout(@Res({ passthrough: true }) res: Response) {
+  async logout(@Res({ passthrough: true }) res: Response, @Req() req: Request) {
+    const cookies = this.authService.extractCookiesFromRequest(req);
+    const refreshToken = cookies?.[REFRESH_TOKEN];
+
+    if (refreshToken) {
+      await this.userSessionsService.logOutUserSession(refreshToken);
+    }
+
     res.clearCookie(ACCESS_TOKEN);
     res.clearCookie(REFRESH_TOKEN);
     return { data: true };
@@ -175,11 +200,22 @@ export class AuthController extends WithLogger {
         isActive: true,
       },
     });
-    const tokens = await this.authService.generateTokens({
-      id: updatedUser.id,
-      identifier: updatedUser.email,
-      role: updatedUser.role,
-    });
+    const tokens = await this.authService.generateTokens(
+      {
+        id: updatedUser.id,
+        identifier: updatedUser.email,
+        role: updatedUser.role,
+      },
+      {
+        user: {
+          connect: {
+            id: updatedUser.id,
+          },
+        },
+        ipAddress: extractIpAddressFromRequest(req),
+        userAgent: extractUserAgentFromRequest(req),
+      },
+    );
     this.authService.attachAccessTokenToCookie(res, tokens.accessToken);
     this.authService.attachRefreshTokenToCookie(res, tokens.refreshToken);
 

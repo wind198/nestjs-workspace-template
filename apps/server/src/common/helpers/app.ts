@@ -2,7 +2,7 @@ import { getEnv } from '@app/config';
 import { INestApplication } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
-import { writeFile } from 'fs/promises';
+import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 
 export const setupSwagger = async (app: INestApplication) => {
@@ -14,6 +14,7 @@ export const setupSwagger = async (app: INestApplication) => {
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   // generate swagger json file
   const specFilePath = join(process.cwd(), './public', 'swagger.json');
+  await mkdir(join(process.cwd(), './public'), { recursive: true });
   console.log('specFilePath', specFilePath);
   await writeFile(specFilePath, JSON.stringify(documentFactory(), null, 2));
   SwaggerModule.setup('api-docs', app, documentFactory);

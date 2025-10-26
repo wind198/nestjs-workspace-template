@@ -35,33 +35,66 @@ describe('parseQsQueryToPrismaWhere', () => {
   });
 
   describe('special field handling', () => {
-    it('should transform q field with string value to contains with insensitive mode', () => {
+    it('should transform q field with string value to search query with searchable fields', () => {
       const filters = {
         q: 'search term',
         name: 'John Doe',
       };
-      const result = parseQsQueryToPrismaWhere(filters);
+      const searchableFields = ['name', 'email'];
+      const result = parseQsQueryToPrismaWhere(filters, searchableFields);
       expect(result).toEqual({
-        q: {
-          contains: 'search term',
-          mode: 'insensitive',
-        },
-        name: 'John Doe',
+        AND: [
+          {
+            name: 'John Doe',
+          },
+          {
+            OR: [
+              {
+                name: {
+                  contains: 'search term',
+                  mode: 'insensitive',
+                },
+              },
+              {
+                email: {
+                  contains: 'search term',
+                  mode: 'insensitive',
+                },
+              },
+            ],
+          },
+        ],
       });
     });
 
-    it('should transform q field with number value to contains with insensitive mode', () => {
+    it('should transform q field with number value to search query with searchable fields', () => {
       const filters = {
         q: 123,
         name: 'John',
       };
-      const result = parseQsQueryToPrismaWhere(filters);
+      const searchableFields = ['name', 'id'];
+      const result = parseQsQueryToPrismaWhere(filters, searchableFields);
       expect(result).toEqual({
-        q: {
-          contains: '123',
-          mode: 'insensitive',
-        },
-        name: 'John',
+        AND: [
+          {
+            name: 'John',
+          },
+          {
+            OR: [
+              {
+                name: {
+                  contains: '123',
+                  mode: 'insensitive',
+                },
+              },
+              {
+                id: {
+                  equals: 123,
+                },
+              },
+            ],
+          },
+        ],
       });
     });
 
@@ -74,6 +107,65 @@ describe('parseQsQueryToPrismaWhere', () => {
       expect(result).toEqual({
         q: { complex: 'object' },
         name: 'John Doe',
+      });
+    });
+
+    it('should handle q field with empty searchable fields array', () => {
+      const filters = {
+        q: 'search term',
+        name: 'John Doe',
+      };
+      const result = parseQsQueryToPrismaWhere(filters, []);
+      expect(result).toEqual({
+        AND: [
+          {
+            name: 'John Doe',
+          },
+          {
+            OR: [],
+          },
+        ],
+      });
+    });
+
+    it('should handle q field with no searchable fields provided', () => {
+      const filters = {
+        q: 'search term',
+        name: 'John Doe',
+      };
+      const result = parseQsQueryToPrismaWhere(filters);
+      expect(result).toEqual({
+        AND: [
+          {
+            name: 'John Doe',
+          },
+          {
+            OR: [],
+          },
+        ],
+      });
+    });
+
+    it('should handle empty q field', () => {
+      const filters = {
+        q: '',
+        name: 'John Doe',
+      };
+      const result = parseQsQueryToPrismaWhere(filters, ['name']);
+      expect(result).toEqual({
+        name: 'John Doe',
+      });
+    });
+
+    it('should handle q field with only whitespace', () => {
+      const filters = {
+        q: '   ',
+        name: 'John Doe',
+      };
+      const result = parseQsQueryToPrismaWhere(filters, ['name']);
+      expect(result).toEqual({
+        name: 'John Doe',
+        q: '   ',
       });
     });
   });
@@ -476,28 +568,31 @@ describe('parseQsQueryToPrismaWhere', () => {
       };
       const result = parseQsQueryToPrismaWhere(filters);
       expect(result).toEqual({
-        q: {
-          contains: 'search term',
-          mode: 'insensitive',
-        },
-        user: {
-          name: 'John Doe',
-          profile: {
-            age: 25,
-            preferences: {
-              theme: 'dark',
-              notifications: [true, false],
+        AND: [
+          {
+            user: {
+              name: 'John Doe',
+              profile: {
+                age: 25,
+                preferences: {
+                  theme: 'dark',
+                  notifications: [true, false],
+                },
+              },
+              roles: [
+                { name: 'admin', level: 1 },
+                { name: 'user', level: 2 },
+              ],
+            },
+            filters: {
+              status: { in: ['active', 'pending'] },
+              tags: { has: 'important' },
             },
           },
-          roles: [
-            { name: 'admin', level: 1 },
-            { name: 'user', level: 2 },
-          ],
-        },
-        filters: {
-          status: { in: ['active', 'pending'] },
-          tags: { has: 'important' },
-        },
+          {
+            OR: [],
+          },
+        ],
       });
     });
 

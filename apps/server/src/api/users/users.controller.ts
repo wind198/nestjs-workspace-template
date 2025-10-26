@@ -29,12 +29,12 @@ import {
   parseSkipLimitFromPagination,
   parseSortToPrismaOrderBy,
 } from '@app/server/common/helpers/parsers';
-import { throwNotFound } from '@app/server/common/helpers/exceptions';
 import { I18nService } from 'nestjs-i18n';
 import { WINSTON_MODULE_PROVIDER, WinstonLogger } from 'nest-winston';
 import { GetManyIdsQuery } from '@app/server/common/class-validators/get-many-ids-query.dto';
 import { IMultiItemsData } from '@app/server/common/types/multi-items-data';
 import { createMultiItemsResponseDto } from '@app/server/common/types/swagger/multi-items-response';
+import { getFieldWithFallbacks } from '@app/server/common/helpers/others';
 @ApiTags('Users')
 @Controller('users')
 export class UsersController
@@ -66,6 +66,13 @@ export class UsersController
     return ['UserSession'].includes(count);
   }
 
+  protected searchableFields: string[] = [
+    'email',
+    'firstName',
+    'lastName',
+    'id',
+  ];
+
   @ApiResponse({ type: createPaginatedResponseDto(UserResponse) })
   @Get()
   async getList(
@@ -73,7 +80,7 @@ export class UsersController
     query: GetListQuery,
   ): Promise<IPaginatedData<UserResponse>> {
     const filters: Prisma.UserWhereInput | undefined =
-      parseQsQueryToPrismaWhere(query.filters);
+      parseQsQueryToPrismaWhere(query.filters, this.searchableFields);
     const include = this.buildPrismaInclude(
       query.populate || [],
       query.count || [],
@@ -114,6 +121,15 @@ export class UsersController
     return { data: data };
   }
 
+  @ApiResponse({ type: createSingleItemResponseDto(String) })
+  @Get(':id/representation')
+  async getRepresentation(
+    @Param('id', new ParseIntPipe()) id: number,
+  ): Promise<ISingleItemData<string>> {
+    const user = await this.usersService.checkUserById(id);
+    return { data: getFieldWithFallbacks(user, this.searchableFields) };
+  }
+
   @ApiResponse({ type: createSingleItemResponseDto(UserResponse) })
   @Get(':id')
   async getById(
@@ -124,17 +140,9 @@ export class UsersController
       query.populate || [],
       query.count || [],
     );
-    const data = await this.usersService.userPrismaClient.findUnique({
-      where: { id },
+    const data = await this.usersService.checkUserById(id, {
       include,
     });
-    if (!data) {
-      throwNotFound(
-        this.i18n.t('common.errors.notFound', {
-          args: { element: this.i18n.t('resource.user') },
-        }),
-      );
-    }
     return {
       data: data as UserResponse,
     };

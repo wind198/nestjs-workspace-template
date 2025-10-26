@@ -7,8 +7,6 @@ import { UserSessionsModule } from '@app/server/api/user-sessions/user-sessions.
 import { UsersModule } from '@app/server/api/users/users.module';
 import { AuthModule } from '@app/server/api/auth/auth.module';
 import { I18nModule } from '@app/server/i18n/i18n.module';
-import { AmazonStrategy } from '@app/server/amazon.strategy';
-import { AmazonGuard } from '@app/server/amazon.guard';
 import { PrismaModule } from '@app/prisma';
 import { join } from 'path';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -34,8 +32,6 @@ import { getWinstonModuleOptions } from '@app/config';
   controllers: [AppController],
   providers: [
     AppService,
-    AmazonStrategy,
-    AmazonGuard,
     {
       provide: APP_PIPE,
       useValue: new ValidationPipe({

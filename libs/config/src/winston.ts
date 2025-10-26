@@ -1,6 +1,9 @@
 import 'winston-daily-rotate-file';
-import { WinstonModuleOptions } from 'nest-winston';
-import { transports } from 'winston';
+import {
+  WinstonModuleOptions,
+  utilities as nestWinstonModuleUtilities,
+} from 'nest-winston';
+import winston, { transports } from 'winston';
 import { format } from 'winston';
 
 export const getWinstonModuleOptions = (
@@ -37,8 +40,6 @@ export const getWinstonModuleOptions = (
       maxFiles: '30d', // will keep log until they are older than 30 days
       format: format.combine(
         format.timestamp(),
-        format.splat(),
-
         format.printf(
           ({ timestamp, level, context, message, ...others }: any) => {
             return JSON.stringify({
@@ -46,10 +47,7 @@ export const getWinstonModuleOptions = (
               level,
               context,
               message,
-              otherMsg:
-                Object.keys(others).length > 0
-                  ? JSON.stringify(others).slice(0, 1000)
-                  : undefined,
+              otherMsg: Object.keys(others).length > 0 ? others : null,
             });
           },
         ),
@@ -58,19 +56,14 @@ export const getWinstonModuleOptions = (
     // we also want to see logs in our console
     new transports.Console({
       format: format.combine(
-        format.cli(),
-        format.splat(),
-        format.timestamp(),
-        format.printf(
-          ({ timestamp, level, context, message, ...others }: any) => {
-            const baseMsg = `${timestamp} ${level}: ${context || 'Application'} ${message}`;
-            const otherMsg =
-              Object.keys(others).length > 0
-                ? JSON.stringify(others).slice(0, 1000)
-                : '';
-            return [baseMsg, otherMsg].filter(Boolean).join('\n');
-          },
-        ),
+        winston.format.timestamp(),
+        winston.format.ms(),
+        nestWinstonModuleUtilities.format.nestLike(appName, {
+          colors: true,
+          prettyPrint: true,
+          processId: true,
+          appName: true,
+        }),
       ),
     }),
   ],

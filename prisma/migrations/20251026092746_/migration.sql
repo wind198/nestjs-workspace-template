@@ -11,6 +11,8 @@ CREATE TABLE "User" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "email" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
+    "firstName" TEXT,
+    "lastName" TEXT,
     "role" "UserRole" NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT false,
     "lastResetPasswordRequestAt" TIMESTAMP(3),
@@ -37,6 +39,10 @@ CREATE TABLE "UserSession" (
     "userId" INTEGER NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
+    "loggedOutAt" TIMESTAMP(3),
+    "revokedAt" TIMESTAMP(3),
+    "ipAddress" TEXT,
+    "userAgent" TEXT,
 
     CONSTRAINT "UserSession_pkey" PRIMARY KEY ("key")
 );

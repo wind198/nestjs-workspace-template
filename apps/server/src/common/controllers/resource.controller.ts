@@ -34,6 +34,11 @@ export abstract class ResourceController<
   /** Retrieves a paginated list of resources with filtering, sorting, and pagination. */
   abstract getList(query: GetListQuery): Promise<IPaginatedData<T>>;
 
+  /** Retrieves a text string representation of a resource by ID. */
+  abstract getRepresentation(
+    id: INumberOrString,
+  ): Promise<ISingleItemData<string>>;
+
   /** Retrieves a single resource by ID with optional population and counting. */
   abstract getById(
     id: INumberOrString,
@@ -73,6 +78,8 @@ export abstract class ResourceController<
   canInclude(_include: string): boolean {
     return false;
   }
+
+  protected searchableFields = ['id'];
 
   /**
    * Field-level authorization for counting operations. Override to implement

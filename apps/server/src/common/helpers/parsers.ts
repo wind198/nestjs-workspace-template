@@ -113,7 +113,6 @@ export const parseExpirationTime = (expirationTime: string) => {
   }
   return { value, unit };
 };
-
 /**
  * Parse the filters object sent by frontend to the prisma where
  * @param filters - Filters to parse
@@ -121,6 +120,7 @@ export const parseExpirationTime = (expirationTime: string) => {
  */
 export const parseQsQueryToPrismaWhere = (
   filters: GetListQuery['filters'],
+  searchableFields: string[] = [],
 ): Record<string, any> | undefined => {
   if (isEmpty(filters)) return;
   const isPrimitive = (value: any): boolean => {
@@ -133,19 +133,12 @@ export const parseQsQueryToPrismaWhere = (
 
   const mapObject = (input: Record<string, any>) => {
     const output = {};
+
     for (const [key, value] of Object.entries(input)) {
       if (value === null) {
         output[key] = null;
       } else if (!value) {
         continue;
-      } else if (
-        key === 'q' &&
-        (typeof value === 'string' || typeof value === 'number')
-      ) {
-        output[key] = {
-          contains: value.toString(),
-          mode: 'insensitive',
-        };
       } else if (isPrimitive(value)) {
         output[key] = value;
       } else if (isEmpty(value)) {
@@ -163,5 +156,60 @@ export const parseQsQueryToPrismaWhere = (
     return output;
   };
 
-  return mapObject(filters);
+  const output = mapObject(filters);
+
+  // Handle the 'q' field for search functionality
+  if (
+    filters['q'] &&
+    (typeof filters['q'] === 'string' || typeof filters['q'] === 'number')
+  ) {
+    const searchString = filters['q'].toString().trim();
+    if (searchString) {
+      // Remove 'q' from output since it's handled separately
+      const otherFilters = { ...output } as any;
+      delete otherFilters.q;
+      const andConditions: any[] = [];
+
+      // Add other filters if they exist
+      if (Object.keys(otherFilters).length > 0) {
+        andConditions.push(otherFilters);
+      }
+
+      // Add search condition
+      andConditions.push({
+        OR: searchableFields
+          .filter((field) => {
+            // For numeric fields like 'id', only include if searchString is a number
+            if (field === 'id') {
+              return !isNaN(Number(searchString));
+            }
+            // Include all other fields
+            return true;
+          })
+          .map((field) => {
+            // For numeric fields like 'id', use equals
+            if (field === 'id' && !isNaN(Number(searchString))) {
+              return {
+                [field]: {
+                  equals: Number(searchString),
+                },
+              };
+            }
+            // For string fields, use contains with insensitive mode
+            return {
+              [field]: {
+                contains: searchString,
+                mode: 'insensitive',
+              },
+            };
+          }),
+      });
+
+      return {
+        AND: andConditions,
+      };
+    }
+  }
+
+  return output;
 };

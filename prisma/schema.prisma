@@ -51,9 +51,13 @@ model TempKey {
 }
 
 model UserSession {
-  key       String   @id @default(uuid())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  key         String    @id @default(uuid())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  loggedOutAt DateTime?
+  revokedAt   DateTime?
+  ipAddress   String?
+  userAgent   String?
 }

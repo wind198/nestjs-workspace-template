@@ -29,23 +29,20 @@ export class AppLogger implements LoggerService {
     this.logger.log(
       'info',
       this.formatMessage(message),
-      { context: this.name },
       // @ts-expect-error - args is any
       ...args,
     );
   }
 
   error(m: string, ...args: any[]) {
-    this.logger.error('error', this.formatMessage(m), ...args);
+    this.logger.error(this.formatMessage(m), ...args);
   }
 
   warn(message: string, ...args: any[]) {
-    // @ts-expect-error - args is any
-    this.logger.warn('warn', this.formatMessage(message), ...args);
+    this.logger.warn(this.formatMessage(message), ...args);
   }
 
   debug(message: string, ...args: any[]) {
-    // @ts-expect-error - args is any
-    this.logger.debug?.('debug', this.formatMessage(message), ...args);
+    this.logger.debug?.(this.formatMessage(message), ...args);
   }
 }
